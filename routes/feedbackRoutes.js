@@ -1,61 +1,55 @@
 const express = require("express");
 const router = express.Router();
-const Feedback = require("../models/feedback");
-const { protect, adminOnly } = require("../middleware/authMiddleware");
+const Feedback = require("../models/Feedback");
+const { protect } = require("../middleware/authMiddleware");
 
-// =========================
-// 📩 SUBMIT FEEDBACK (VOTER)
-// =========================
+// ======================
+// SUBMIT FEEDBACK
+// ======================
 router.post("/", protect, async (req, res) => {
   try {
     const { message, rating } = req.body;
 
-    // ❌ Removed the vote-first check
+    if (!rating) {
+      return res.status(400).json({ message: "Rating is required" });
+    }
 
-    // Prevent duplicate feedback
+    // Prevent duplicate feedback per voter
     const existing = await Feedback.findOne({
-      $or: [
-        { user: req.user._id },
-        { voter: req.user._id }
-      ]
+      voterCode: req.user.code,
     });
 
     if (existing) {
-      return res.status(400).json({ message: "You already submitted feedback" });
+      return res.status(400).json({
+        message: "You already submitted feedback",
+      });
     }
 
-    const feedbackData = { message, rating };
+    const feedback = await Feedback.create({
+      voterCode: req.user.code,
+      message,
+      rating,
+    });
 
-    // Assign correct owner
-    if (req.user.role === "voter") {
-      feedbackData.voter = req.user._id;
-    } else {
-      feedbackData.user = req.user._id;
-    }
-
-    const feedback = new Feedback(feedbackData);
-    await feedback.save();
-
-    res.status(201).json({ message: "Feedback submitted successfully" });
-
+    res.status(201).json({
+      message: "Feedback submitted successfully",
+      feedback,
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error saving feedback" });
+    console.error("Feedback Error:", err);
+    res.status(500).json({ message: err.message });
   }
 });
 
-// =========================
-// 📊 GET ALL FEEDBACK (ADMIN)
-// =========================
-router.get("/", protect, adminOnly, async (req, res) => {
+// ======================
+// GET ALL FEEDBACK (TEMP: PUBLIC OR ADMIN VIEW)
+// ======================
+router.get("/", protect, async (req, res) => {
   try {
     const feedbacks = await Feedback.find()
-      .populate("user", "name email")
-      .populate("voter", "code")
       .sort({ createdAt: -1 });
 
     res.json(feedbacks);
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error fetching feedback" });

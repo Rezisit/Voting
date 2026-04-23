@@ -1,119 +1,104 @@
-const express = require('express');
-const Candidate = require('../models/Candidate');
-const Vote = require('../models/Vote');
-const VoterCode = require('../models/Votercode');
-const { protect } = require('../middleware/authMiddleware');
+const express = require("express");
+const Candidate = require("../models/Candidate");
+const Vote = require("../models/Vote");
+const VoterCode = require("../models/VoterCode");
+const { protect } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
 // ======================
-// TEST ROUTE
+// TEST
 // ======================
-router.get('/test', (req, res) => {
-  res.send("Vote route is working ✅");
+router.get("/test", (req, res) => {
+  res.send("Vote route working ✅");
 });
 
 // ======================
-// CAST MULTIPLE VOTES
+// CAST VOTE
 // ======================
-router.post('votes/batch', protect, async (req, res) => {
-  let { candidateIds } = req.body;
+router.post("/batch", protect, async (req, res) => {
+  const { votes } = req.body;
 
-  if (!candidateIds || candidateIds.length === 0) {
-    return res.status(400).json({ message: 'No candidates selected' });
+  if (!votes?.length) {
+    return res.status(400).json({ message: "No votes submitted" });
   }
 
-  if (!Array.isArray(candidateIds)) candidateIds = [candidateIds];
-
   try {
+    const voterCode = req.user.code;
+
+    const voter = await VoterCode.findOne({ code: voterCode });
+
+    if (!voter) {
+      return res.status(404).json({ message: "Invalid voter code" });
+    }
+
+    if (voter.used) {
+      return res.status(400).json({ message: "Already voted" });
+    }
+
     const results = [];
-    const skipped = [];
 
-    await Promise.all(candidateIds.map(async (id) => {
-      const candidate = await Candidate.findById(id);
-      if (!candidate) {
-        skipped.push(`Candidate not found: ${id}`);
-        return;
-      }
+    for (const v of votes) {
+      const { candidateId, position } = v;
 
-      const position = candidate.candidacy;
+      const candidate = await Candidate.findById(candidateId);
+      if (!candidate) continue;
 
-      const alreadyVoted = await Vote.findOne({
-        user: req.user._id,
-        userType: req.user.role === 'voter' ? 'VoterCode' : 'User',
-        position
+      const existing = await Vote.findOne({
+        voterCode,
+        position,
       });
 
-      if (alreadyVoted) {
-        skipped.push(`Already voted for ${position}`);
-        return;
-      }
+      if (existing) continue;
 
       await Vote.create({
-        user: req.user._id,
-        userType: req.user.role === 'voter' ? 'VoterCode' : 'User',
+        voterCode,
         candidate: candidate._id,
-        position
-      });
-
-      await Candidate.findByIdAndUpdate(candidate._id, {
-        $inc: { votes: 1 }
+        position,
       });
 
       results.push(position);
-    }));
-
-    if (results.length === 0) {
-      return res.status(400).json({
-        message: "Vote failed",
-        skipped
-      });
     }
 
-    if (req.user.role === 'voter') {
-      await VoterCode.findByIdAndUpdate(req.user._id, {
-        used: true,
-        usedAt: new Date()
-      });
-    }
+    await VoterCode.updateOne(
+      { code: voterCode },
+      { used: true, usedAt: new Date() }
+    );
 
     res.json({
-      message: "Votes submitted successfully",
+      message: "Vote successful",
       votedPositions: results,
-      skippedPositions: skipped
     });
-
-  } catch (error) {
-    console.error("Batch Vote Error:", error);
-    res.status(500).json({ message: error.message });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: err.message });
   }
 });
 
 // ======================
-// GET USER VOTES (FIXED)
+// GET BALLOT RECEIPT
 // ======================
-router.get('/votes', protect, async (req, res) => {
+router.get("/", protect, async (req, res) => {
   try {
-    const votes = await Vote.find({
-      user: req.user._id,
-      userType: req.user.role === 'voter' ? 'VoterCode' : 'User'
-    }).populate('candidate');
+    const voterCode = req.user.code;
 
-    console.log("Fetched Votes:", votes);
+    const votes = await Vote.find({ voterCode }).populate(
+      "candidate",
+      "firstName lastName image candidacy"
+    );
 
-    const formatted = votes.map(v => ({
-      candidateId: v.candidate?._id || null,
+    const formatted = votes.map((v) => ({
+      candidateId: v.candidate?._id,
       candidateName: v.candidate
         ? `${v.candidate.firstName} ${v.candidate.lastName}`
-        : "Deleted Candidate",
-      position: v.position || "Unknown Position",
-      image: v.candidate?.image || null
+        : "Unknown",
+      position: v.position,
+      image: v.candidate?.image || null,
     }));
 
     res.json(formatted);
-
   } catch (err) {
-    console.error("Error fetching votes:", err);
+    console.error(err);
     res.status(500).json({ message: err.message });
   }
 });

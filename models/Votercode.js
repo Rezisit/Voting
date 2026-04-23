@@ -4,30 +4,31 @@ const voterCodeSchema = new mongoose.Schema({
   code: {
     type: String,
     required: true,
-    unique: true
-  },
-
-  
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    required: true
+    unique: true,
   },
 
   used: {
     type: Boolean,
-    default: false
+    default: false,
   },
 
   usedAt: {
     type: Date,
-    default: null
+    default: null,
+  },
+
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null,
   },
 
   createdAt: {
     type: Date,
-    default: Date.now
-  }
+    default: Date.now,
+  },
 });
 
-module.exports = mongoose.model("VoterCode", voterCodeSchema);
+module.exports =
+  mongoose.models.VoterCode ||
+  mongoose.model("VoterCode", voterCodeSchema);

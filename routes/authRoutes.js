@@ -3,26 +3,24 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
 const User = require("../models/User");
-const VoterCode = require("../models/Votercode");
+const VoterCode = require("../models/VoterCode");
 
 const { protect } = require("../middleware/authMiddleware");
 
 const router = express.Router();
-
 
 // =======================
 // REGISTER (ADMIN / USERS)
 // =======================
 router.post("/register", async (req, res) => {
   try {
-
     const { username, email, password, role } = req.body;
 
     const existingUser = await User.findOne({ email });
 
     if (existingUser) {
       return res.status(400).json({
-        message: "User already exists"
+        message: "User already exists",
       });
     }
 
@@ -38,34 +36,28 @@ router.post("/register", async (req, res) => {
 
     res.json({
       message: "User registered successfully",
-      user
+      user,
     });
-
   } catch (error) {
-
     console.error(error);
-
     res.status(500).json({
-      message: "Registration failed"
+      message: "Registration failed",
     });
   }
 });
 
-
 // =======================
-// LOGIN (ADMIN EMAIL + PASSWORD)
+// LOGIN (ADMIN)
 // =======================
 router.post("/login", async (req, res) => {
-
   try {
-
     const { email, password } = req.body;
 
     const user = await User.findOne({ email });
 
     if (!user) {
       return res.status(400).json({
-        message: "User not found"
+        message: "User not found",
       });
     }
 
@@ -73,14 +65,14 @@ router.post("/login", async (req, res) => {
 
     if (!match) {
       return res.status(400).json({
-        message: "Invalid password"
+        message: "Invalid password",
       });
     }
 
     const token = jwt.sign(
       {
         id: user._id,
-        role: user.role
+        role: user.role,
       },
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
@@ -89,54 +81,49 @@ router.post("/login", async (req, res) => {
     res.json({
       message: "Login successful",
       token,
-      role: user.role
+      role: user.role,
     });
-
   } catch (error) {
-
     console.error(error);
-
     res.status(500).json({
-      message: "Login failed"
+      message: "Login failed",
     });
   }
 });
-
 
 // =======================
 // LOGIN USING VOTER CODE
 // =======================
 router.post("/login-code", async (req, res) => {
-
   try {
-
-    const { code } = req.body;
+    let { code } = req.body;
 
     if (!code) {
       return res.status(400).json({
-        message: "Voter code required"
+        message: "Voter code required",
       });
     }
+
+    code = code.trim().toUpperCase();
 
     const voterCode = await VoterCode.findOne({ code });
 
     if (!voterCode) {
       return res.status(400).json({
-        message: "Invalid voter code"
+        message: "Code not found in system",
       });
     }
 
     if (voterCode.used) {
       return res.status(400).json({
-        message: "This code has already voted"
+        message: "This code has already been used",
       });
     }
 
     const token = jwt.sign(
       {
-        voterId: voterCode._id,
+        role: "voter",
         code: voterCode.code,
-        role: "user"
       },
       process.env.JWT_SECRET,
       { expiresIn: "6h" }
@@ -145,46 +132,37 @@ router.post("/login-code", async (req, res) => {
     res.json({
       message: "Voter login successful",
       token,
-      role: "user"
+      role: "voter",
     });
 
   } catch (error) {
-
     console.error(error);
-
     res.status(500).json({
-      message: "Code login failed"
+      message: "Code login failed",
     });
   }
 });
-
 
 // =======================
 // GET USER VOTED POSITIONS
 // =======================
 router.get("/votes", protect, async (req, res) => {
-
   try {
-
     const user = await User.findById(req.user.id);
 
     if (!user) {
       return res.status(404).json({
-        message: "User not found"
+        message: "User not found",
       });
     }
 
     res.json(user.votedPositions || []);
-
   } catch (error) {
-
     console.error(error);
-
     res.status(500).json({
-      message: "Failed to fetch voted positions"
+      message: "Failed to fetch voted positions",
     });
   }
 });
-
 
 module.exports = router;

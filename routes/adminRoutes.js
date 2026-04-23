@@ -1,7 +1,7 @@
 const express = require("express");
 const Candidate = require("../models/Candidate");
 const Vote = require("../models/Vote");
-const VoterCode = require("../models/Votercode");
+const VoterCode = require("../models/VoterCode");
 const Election = require("../models/Election");
 const { protect } = require("../middleware/authMiddleware");
 
@@ -11,20 +11,21 @@ const router = express.Router();
 // ADMIN ONLY MIDDLEWARE
 // =======================
 const adminOnly = (req, res, next) => {
-  if (!req.user || req.user.role !== "admin") {
+  if (req.user && req.user.role?.toLowerCase() === "admin") {
+    next();
+  } else {
     return res.status(403).json({ message: "Forbidden: Admins only" });
   }
-  next();
 };
 
 // =======================
 // GENERATE VOTER CODES
 // =======================
-router.post("/generate-codes", protect, adminOnly, async (req, res) => {
+router.post("/codes/generate", protect, adminOnly, async (req, res) => {
   try {
     const { amount } = req.body;
 
-    if (!amount) {
+    if (!amount || amount <= 0) {
       return res.status(400).json({ message: "Amount required" });
     }
 
@@ -33,7 +34,7 @@ router.post("/generate-codes", protect, adminOnly, async (req, res) => {
     for (let i = 0; i < amount; i++) {
       const code = Math.random()
         .toString(36)
-        .substring(2, 8)
+        .substring(2, 10)
         .toUpperCase();
 
       codes.push({
@@ -56,20 +57,19 @@ router.post("/generate-codes", protect, adminOnly, async (req, res) => {
 });
 
 // =======================
-// VIEW ALL VOTER CODES
+// GET ALL VOTER CODES
 // =======================
 router.get("/codes", protect, adminOnly, async (req, res) => {
   try {
     const codes = await VoterCode.find().sort({ createdAt: -1 });
     res.json(codes);
   } catch (error) {
-    console.error(error);
     res.status(500).json({ message: "Failed to fetch voter codes" });
   }
 });
 
 // =======================
-// DELETE A VOTER CODE
+// DELETE VOTER CODE
 // =======================
 router.delete("/codes/:id", protect, adminOnly, async (req, res) => {
   try {
@@ -83,18 +83,26 @@ router.delete("/codes/:id", protect, adminOnly, async (req, res) => {
 
     res.json({ message: "Voter code deleted" });
   } catch (error) {
-    console.error(error);
     res.status(500).json({ message: "Failed to delete code" });
   }
 });
 
 // =======================
-// RESET ENTIRE ELECTION
+// 🔥 FIXED RESET ELECTION (IMPORTANT)
 // =======================
 router.post("/reset-election", protect, adminOnly, async (req, res) => {
   try {
+    // remove all votes
     await Vote.deleteMany({});
+
+    // reset voter codes
     await VoterCode.deleteMany({});
+
+    // reset candidate votes (CRITICAL FIX)
+    await Candidate.updateMany({}, { votes: 0 });
+
+    // reset election status (safe default)
+    await Election.updateMany({}, { isOpen: true });
 
     res.json({ message: "Election reset successfully" });
   } catch (error) {
@@ -104,7 +112,7 @@ router.post("/reset-election", protect, adminOnly, async (req, res) => {
 });
 
 // =======================
-// GET ELECTION RESULTS
+// RESULTS
 // =======================
 router.get("/results", protect, adminOnly, async (req, res) => {
   try {
@@ -125,21 +133,19 @@ router.get("/results", protect, adminOnly, async (req, res) => {
 
     res.json(results.sort((a, b) => b.votes - a.votes));
   } catch (error) {
-    console.error(error);
     res.status(500).json({ message: "Failed to fetch results" });
   }
 });
 
 // =======================
-// ADMIN ELECTION STATS
+// STATS
 // =======================
 router.get("/stats", protect, adminOnly, async (req, res) => {
   try {
     const totalVoterCodes = await VoterCode.countDocuments();
 
-    const usedCodes = await VoterCode.countDocuments({
-      voted: true,
-    });
+    // IMPORTANT: make sure this matches your schema (voted vs used)
+    const usedCodes = await VoterCode.countDocuments({ voted: true });
 
     const totalVotes = await Vote.countDocuments();
 
@@ -155,16 +161,13 @@ router.get("/stats", protect, adminOnly, async (req, res) => {
       turnout,
     });
   } catch (error) {
-    console.error(error);
     res.status(500).json({ message: "Failed to fetch admin statistics" });
   }
 });
 
-// ======================================================
-// 🟢 ELECTION CONTROL (NEW FEATURE ADDED)
-// ======================================================
-
-// GET ELECTION STATUS
+// =======================
+// ELECTION STATUS
+// =======================
 router.get("/election/status", async (req, res) => {
   try {
     let election = await Election.findOne();
@@ -175,47 +178,42 @@ router.get("/election/status", async (req, res) => {
 
     res.json({ isOpen: election.isOpen });
   } catch (error) {
-    console.error(error);
     res.status(500).json({ message: "Failed to get election status" });
   }
 });
 
+// =======================
 // CLOSE ELECTION
+// =======================
 router.put("/election/close", protect, adminOnly, async (req, res) => {
   try {
     let election = await Election.findOne();
 
-    if (!election) {
-      election = new Election({ isOpen: false });
-    } else {
-      election.isOpen = false;
-    }
+    if (!election) election = new Election({ isOpen: false });
+    else election.isOpen = false;
 
     await election.save();
 
     res.json({ message: "Election closed successfully" });
   } catch (error) {
-    console.error(error);
     res.status(500).json({ message: "Failed to close election" });
   }
 });
 
+// =======================
 // OPEN ELECTION
+// =======================
 router.put("/election/open", protect, adminOnly, async (req, res) => {
   try {
     let election = await Election.findOne();
 
-    if (!election) {
-      election = new Election({ isOpen: true });
-    } else {
-      election.isOpen = true;
-    }
+    if (!election) election = new Election({ isOpen: true });
+    else election.isOpen = true;
 
     await election.save();
 
     res.json({ message: "Election opened successfully" });
   } catch (error) {
-    console.error(error);
     res.status(500).json({ message: "Failed to open election" });
   }
 });

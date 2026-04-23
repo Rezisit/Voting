@@ -1,62 +1,59 @@
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const VoterCode = require('../models/Votercode');
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
+const VoterCode = require("../models/VoterCode");
 
-// 🔐 PROTECT
 const protect = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
+    const token = req.headers.authorization?.split(" ")[1];
 
-    if (!authHeader || !authHeader.startsWith('Bearer')) {
-      return res.status(401).json({ message: 'No token provided' });
+    if (!token) {
+      return res.status(401).json({ message: "No token provided" });
     }
 
-    const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // =========================
-    // ADMIN / REGISTERED USER
-    // =========================
+    // ======================
+    // ADMIN / USER LOGIN
+    // ======================
     if (decoded.id) {
-      const user = await User.findById(decoded.id).select('-password');
-      if (!user) return res.status(401).json({ message: 'User not found' });
+      const user = await User.findById(decoded.id);
 
-      req.user = user;
-      return next();
-    }
-
-    // =========================
-    // VOTER
-    // =========================
-    if (decoded.voterId) {
-      const voterCode = await VoterCode.findById(decoded.voterId);
-      if (!voterCode) return res.status(401).json({ message: 'Invalid voter code' });
+      if (!user) {
+        return res.status(401).json({ message: "User not found" });
+      }
 
       req.user = {
-        _id: voterCode._id,
-        code: voterCode.code,
-        role: 'voter',
-        hasVoted: voterCode.hasVoted
+        _id: user._id,
+        role: user.role,
       };
 
       return next();
     }
 
-    return res.status(401).json({ message: 'Invalid token' });
+    // ======================
+    // VOTER CODE LOGIN
+    // ======================
+    const voterCode = decoded.code || decoded.voterCode;
 
-  } catch (error) {
-    console.error('Protect middleware error:', error);
-    return res.status(401).json({ message: 'Not authorized' });
-  }
-};
+    if (!voterCode) {
+      return res.status(401).json({ message: "Invalid token" });
+    }
 
-// 🔒 ADMIN ONLY
-const adminOnly = (req, res, next) => {
-  if (req.user && req.user.role === "admin") {
+    const voter = await VoterCode.findOne({ code: voterCode });
+
+    if (!voter) {
+      return res.status(401).json({ message: "Invalid voter code" });
+    }
+
+    req.user = {
+      code: voter.code,
+      role: "voter",
+    };
+
     next();
-  } else {
-    return res.status(403).json({ message: "Admin only" });
+  } catch (err) {
+    return res.status(401).json({ message: "Not authorized" });
   }
 };
 
-module.exports = { protect, adminOnly };
+module.exports = { protect };
