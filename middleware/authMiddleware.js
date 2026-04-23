@@ -1,6 +1,6 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
-const VoterCode = require("../models/VoterCode");
+const VoterCode = require("../models/Votercode");
 
 const protect = async (req, res, next) => {
   try {

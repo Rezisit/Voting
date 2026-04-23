@@ -1,7 +1,7 @@
 const express = require("express");
 const Vote = require("../models/Vote");
 const Candidate = require("../models/Candidate");
-const VoterCode = require("../models/VoterCode");
+const VoterCode = require("../models/Votercode");
 
 const router = express.Router();
 

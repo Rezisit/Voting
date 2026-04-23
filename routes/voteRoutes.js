@@ -1,7 +1,7 @@
 const express = require("express");
 const Candidate = require("../models/Candidate");
 const Vote = require("../models/Vote");
-const VoterCode = require("../models/VoterCode");
+const VoterCode = require("../models/Votercode");
 const { protect } = require("../middleware/authMiddleware");
 
 const router = express.Router();
@@ -10,7 +10,7 @@ const router = express.Router();
 // TEST
 // ======================
 router.get("/test", (req, res) => {
-  res.send("Vote route working ✅");
+  res.json({ message: "Vote route working ✅" });
 });
 
 // ======================
@@ -19,7 +19,7 @@ router.get("/test", (req, res) => {
 router.post("/batch", protect, async (req, res) => {
   const { votes } = req.body;
 
-  if (!votes?.length) {
+  if (!votes || votes.length === 0) {
     return res.status(400).json({ message: "No votes submitted" });
   }
 
@@ -57,6 +57,11 @@ router.post("/batch", protect, async (req, res) => {
         position,
       });
 
+      // increment vote count
+      await Candidate.findByIdAndUpdate(candidate._id, {
+        $inc: { votes: 1 }
+      });
+
       results.push(position);
     }
 
@@ -66,39 +71,87 @@ router.post("/batch", protect, async (req, res) => {
     );
 
     res.json({
-      message: "Vote successful",
+      message: "Vote successful ✅",
       votedPositions: results,
     });
+
   } catch (err) {
-    console.error(err);
+    console.error("Vote Error:", err);
     res.status(500).json({ message: err.message });
   }
 });
 
+
 // ======================
-// GET BALLOT RECEIPT
+// 🔥 GET MY VOTES (MAIN FIX)
 // ======================
 router.get("/", protect, async (req, res) => {
   try {
     const voterCode = req.user.code;
 
-    const votes = await Vote.find({ voterCode }).populate(
-      "candidate",
-      "firstName lastName image candidacy"
-    );
+    if (!voterCode) {
+      return res.status(400).json({ message: "No voter code found" });
+    }
 
-    const formatted = votes.map((v) => ({
+    const votes = await Vote.find({ voterCode })
+      .populate("candidate");
+
+    const formatted = votes.map(v => ({
+      position: v.position,
       candidateId: v.candidate?._id,
       candidateName: v.candidate
         ? `${v.candidate.firstName} ${v.candidate.lastName}`
         : "Unknown",
-      position: v.position,
-      image: v.candidate?.image || null,
+      image: v.candidate?.image || null
     }));
 
     res.json(formatted);
+
   } catch (err) {
-    console.error(err);
+    console.error("GET VOTES ERROR:", err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ======================
+// 🔥 MY VOTES (RECEIPT)
+// ======================
+router.get("/my-votes", protect, async (req, res) => {
+  try {
+    const voterCode = req.user.code;
+
+    const votes = await Vote.find({ voterCode })
+      .populate("candidate");
+
+    if (!votes.length) {
+      return res.json({
+        message: "No votes found",
+        votes: []
+      });
+    }
+
+    // format for receipt
+    const formatted = votes.map(v => ({
+      position: v.position,
+      candidateId: v.candidate?._id,
+      candidateName: v.candidate
+        ? `${v.candidate.firstName} ${v.candidate.lastName}`
+        : "Unknown",
+      partylist: v.candidate?.partylist || "N/A",
+      image: v.candidate?.image || null
+    }));
+
+    // 🔥 SORT by position (important for receipt)
+    formatted.sort((a, b) => a.position.localeCompare(b.position));
+
+    res.json({
+      message: "Voting receipt fetched ✅",
+      totalVotes: formatted.length,
+      data: formatted
+    });
+
+  } catch (err) {
+    console.error("My Votes Error:", err);
     res.status(500).json({ message: err.message });
   }
 });
